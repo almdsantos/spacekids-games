@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>Brick Breaker</title>
+<style>
+:root{--cyan:#00f0ff;--pink:#39ff14;--green:#39ff14;--bg:#000}
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;user-select:none}
+html,body{height:100%;width:100%;background:#000;overflow:hidden;font-family:'Courier New',monospace;color:#fff;overscroll-behavior:none}
+body{display:flex;flex-direction:column;align-items:center;justify-content:space-between;padding:6px;gap:5px;background:radial-gradient(circle at 50% 0%,#0a0a1f 0%,#000 70%)}
+#header{width:100%;max-width:600px;min-height:52px;display:flex;justify-content:space-around;align-items:center;gap:4px 10px;padding:6px 6px;border:2px solid var(--cyan);border-radius:8px;background:rgba(0,20,30,.6);box-shadow:0 0 12px rgba(0,240,255,.5),inset 0 0 12px rgba(0,240,255,.15);text-transform:uppercase;letter-spacing:1px}
+.stat{display:flex;flex-direction:column;align-items:center;line-height:1.2;min-width:60px}.label{font-size:10px;color:#6ad7e0;opacity:.85}.value{font-size:clamp(14px,4vw,20px);font-weight:bold;text-shadow:0 0 8px var(--cyan)}#difficultyStat .value{color:var(--pink);text-shadow:0 0 8px var(--pink)}#livesStat .value{color:var(--green);text-shadow:0 0 8px var(--green)}
+#gameWrap{flex:1;width:100%;display:flex;align-items:center;justify-content:center;min-height:0}
+#gameCanvas{background:#000;border:2px solid var(--pink);border-radius:8px;box-shadow:0 0 20px rgba(255,45,149,.55),0 0 40px rgba(255,45,149,.2);touch-action:none;max-width:100%;max-height:100%;display:block}
+#controls{width:100%;max-width:600px;display:flex;flex-direction:column;align-items:center;gap:6px}
+#buttonRow{display:flex;gap:12px;justify-content:center}
+button.btn{min-width:105px;min-height:48px;padding:9px 18px;font-family:inherit;font-size:15px;font-weight:bold;text-transform:uppercase;letter-spacing:1px;color:var(--cyan);background:rgba(0,20,30,.7);border:2px solid var(--cyan);border-radius:12px;cursor:pointer;box-shadow:0 0 10px rgba(0,240,255,.4);touch-action:manipulation}
+button.btn:active{transform:scale(.96)}button.btn.pink{color:var(--pink);border-color:var(--pink);box-shadow:0 0 10px rgba(255,45,149,.4)}
+#instructions{font-size:10px;color:#7fd6df;text-align:center;opacity:.8;padding:0 6px}
+@media(max-width:500px){.stat{min-width:48px}.stat .label{font-size:8px}#instructions{font-size:10px}}
+</style>
+</head>
+<body>
+<header id="header">
+<div class="stat"><span class="label">Nível</span><span class="value" id="levelVal">1</span></div>
+<div class="stat"><span class="label">Pontos</span><span class="value" id="scoreVal">0</span></div>
+<div class="stat"><span class="label">Recorde</span><span class="value" id="highVal">0</span></div>
+<div class="stat" id="livesStat"><span class="label">Vidas</span><span class="value" id="livesVal">3</span></div>
+<div class="stat" id="difficultyStat"><span class="label">Modo</span><span class="value" id="diffVal">--</span></div>
+</header>
+
+<div id="gameWrap"><canvas id="gameCanvas" width="600" height="800"></canvas></div>
+
+<div id="controls">
+<div id="buttonRow"><button class="btn" id="pauseBtn">Pausar</button><button class="btn pink" id="restartBtn">Reiniciar</button></div>
+<div id="instructions">Arraste o dedo para mover &nbsp;|&nbsp; Toque para lançar &nbsp;|&nbsp; Pause pelo botão</div>
+</div>
+
+<script>
+"use strict";
+(function(){
+const canvas=document.getElementById("gameCanvas"),ctx=canvas.getContext("2d");
+const W=600,H=800,levelVal=document.getElementById("levelVal"),scoreVal=document.getElementById("scoreVal"),highVal=document.getElementById("highVal"),livesVal=document.getElementById("livesVal"),diffVal=document.getElementById("diffVal"),pauseBtn=document.getElementById("pauseBtn"),restartBtn=document.getElementById("restartBtn");
+const STATE={START:"START",READY:"READY",PLAYING:"PLAYING",PAUSED:"PAUSED",CLEARED:"CLEARED",OVER:"OVER",VICTORY:"VICTORY"};
+const DIFF={Easy:{ballSpeed:5,paddleW:150,label:"FÁCIL"},Normal:{ballSpeed:6.5,paddleW:120,label:"NORMAL"},Hard:{ballSpeed:8,paddleW:90,label:"DIFÍCIL"}};
+const COLORS=["#ff1744","#ff9100","#ffea00","#00e676","#00b0ff","#d500f9"];
+const LEVELS=[
+[[1,1,1,1,1,1,1,1,1,1],[1,1,1,1,1,1,1,1,1,1],[1,1,1,1,1,1,1,1,1,1],[1,1,1,1,1,1,1,1,1,1],[1,1,1,1,1,1,1,1,1,1]],
+[[0,0,0,0,2,2,0,0,0,0],[0,0,0,2,1,1,2,0,0,0],[0,0,2,1,1,1,1,2,0,0],[0,2,1,1,2,2,1,1,2,0],[2,1,1,1,1,1,1,1,1,2],[1,1,1,1,1,1,1,1,1,1]],
+[[9,1,2,1,9,9,1,2,1,9],[1,9,1,2,1,1,2,1,9,1],[2,1,9,1,2,2,1,9,1,2],[1,2,1,9,1,1,9,1,2,1],[9,1,2,1,9,9,1,2,1,9],[1,1,1,2,1,1,2,1,1,1]]
+];
+let game={state:STATE.START,difficulty:null,settings:null,level:0,score:0,high:0,lives:3,bricks:[],speed:6.5};
+const paddle={x:0,y:0,w:120,h:16},ball={x:0,y:0,r:9,dx:0,dy:0,speed:6.5};
+const BRICK_TOP=90,GAP=5,SIDE=18,COLS=10;let brickW=0;
+try{game.high=parseInt(localStorage.getItem("bb_highscore"),10)||0}catch{}
+let buttons=[];
+function resize(){let wrap=document.getElementById("gameWrap"),aw=wrap.clientWidth,ah=wrap.clientHeight,ratio=W/H,dw=aw,dh=dw/ratio;if(dh>ah){dh=ah;dw=dh*ratio}canvas.style.width=Math.floor(dw)+"px";canvas.style.height=Math.floor(dh)+"px";document.getElementById("header").style.width=Math.floor(dw)+"px";document.getElementById("controls").style.width=Math.floor(dw)+"px"}
+function pos(x,y){let r=canvas.getBoundingClientRect();return{x:(x-r.left)*W/r.width,y:(y-r.top)*H/r.height}}
+function buildButtons(){let bw=230,bh=62,g=18,x=W/2-bw/2,y=330;buttons=[["Fácil",x,y,bw,bh],["Normal",x,y+80,bw,bh],["Difícil",x,y+160,bw,bh]]}
+buildButtons();
+function loadLevel(i){let layout=LEVELS[i];brickW=(W-SIDE*2-GAP*(COLS-1))/COLS;game.bricks=[];for(let r=0;r<layout.length;r++)for(let c=0;c<COLS;c++){let t=layout[r][c];if(!t)continue;let hp=t===2?2:t===9?Infinity:1;game.bricks.push({x:SIDE+c*(brickW+GAP),y:BRICK_TOP+r*29,w:brickW,h:24,type:t,hp,maxHp:hp,row:r,alive:true})}}
+function remaining(){return game.bricks.filter(b=>b.alive&&b.type!==9).length}
+function resetPaddle(){paddle.w=game.settings.paddleW;paddle.y=H-55;paddle.x=W/2-paddle.w/2}
+function dock(){ball.r=9;ball.x=paddle.x+paddle.w/2;ball.y=paddle.y-ball.r-1;ball.speed=game.speed;ball.dx=ball.dy=0;game.state=STATE.READY}
+function launch(){if(game.state!==STATE.READY)return;let a=-Math.PI/2+(Math.random()*.5-.25);ball.dx=Math.cos(a)*ball.speed;ball.dy=Math.sin(a)*ball.speed;game.state=STATE.PLAYING}
+function start(name){game.difficulty=name;game.settings=DIFF[name];game.speed=game.settings.ballSpeed;game.level=0;game.score=0;game.lives=3;loadLevel(0);resetPaddle();dock();hud()}
+function next(){game.level++;if(game.level>=LEVELS.length){game.state=STATE.VICTORY;save();return}game.speed=game.settings.ballSpeed;loadLevel(game.level);resetPaddle();dock();hud()}
+function lose(){game.lives--;hud();if(game.lives<=0){game.state=STATE.OVER;save()}else{resetPaddle();dock()}}
+function save(){if(game.score>game.high){game.high=game.score;try{localStorage.setItem("bb_highscore",game.high)}catch{}}hud()}
+function add(n){game.score+=n;if(game.score>game.high)game.high=game.score;hud()}
+function hud(){levelVal.textContent=game.level+1;scoreVal.textContent=game.score;highVal.textContent=game.high;livesVal.textContent=Math.max(0,game.lives);diffVal.textContent=game.settings?game.settings.label:"--"}
+function clamp(){paddle.x=Math.max(0,Math.min(W-paddle.w,paddle.x))}
+function move(x){paddle.x=x-paddle.w/2;clamp()}
+function update(){
+ if(game.state===STATE.READY){ball.x=paddle.x+paddle.w/2;ball.y=paddle.y-ball.r-1;return}
+ if(game.state!=="PLAYING")return;
+ ball.x+=ball.dx;ball.y+=ball.dy;
+ if(ball.x-ball.r<=0){ball.x=ball.r;ball.dx=Math.abs(ball.dx)}else if(ball.x+ball.r>=W){ball.x=W-ball.r;ball.dx=-Math.abs(ball.dx)}
+ if(ball.y-ball.r<=0){ball.y=ball.r;ball.dy=Math.abs(ball.dy)}
+ if(ball.dy>0&&ball.y+ball.r>=paddle.y&&ball.y-ball.r<=paddle.y+paddle.h&&ball.x+ball.r>=paddle.x&&ball.x-ball.r<=paddle.x+paddle.w){
+   let rel=(ball.x-(paddle.x+paddle.w/2))/(paddle.w/2);rel=Math.max(-1,Math.min(1,rel));let a=rel*Math.PI/3,s=Math.hypot(ball.dx,ball.dy);ball.dx=s*Math.sin(a);ball.dy=-s*Math.cos(a);ball.y=paddle.y-ball.r-.5
+ }
+ for(const b of game.bricks){if(!b.alive)continue;if(ball.x+ball.r<b.x||ball.x-ball.r>b.x+b.w||ball.y+ball.r<b.y||ball.y-ball.r>b.y+b.h)continue;let ox=b.w/2+ball.r-Math.abs(ball.x-(b.x+b.w/2)),oy=b.h/2+ball.r-Math.abs(ball.y-(b.y+b.h/2));if(ox<oy)ball.dx=-ball.dx;else ball.dy=-ball.dy;if(b.type!==9){b.hp--;if(b.hp<=0){b.alive=false;add(b.type===2?30:10+game.level*5)}else add(5)}break}
+ if(ball.y-ball.r>H){lose();return}
+ if(remaining()===0)game.state=STATE.CLEARED
+}
+function rr(x,y,w,h,r){ctx.beginPath();ctx.moveTo(x+r,y);ctx.arcTo(x+w,y,x+w,y+h,r);ctx.arcTo(x+w,y+h,x,y+h,r);ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);ctx.closePath()}
+function render(){
+ ctx.clearRect(0,0,W,H);ctx.fillStyle="#000";ctx.fillRect(0,0,W,H);
+ if(game.state===STATE.START){startScreen();return}
+ for(const b of game.bricks){if(!b.alive)continue;let col=b.type===9?"#9aa4ad":b.type===2?(b.hp<2?"#8d6e00":"#c0c0c0"):COLORS[b.row%COLORS.length];ctx.save();ctx.shadowColor=col;ctx.shadowBlur=12;ctx.fillStyle=col;rr(b.x,b.y,b.w,b.h,4);ctx.fill();ctx.restore()}
+ ctx.save();ctx.shadowColor="#00f0ff";ctx.shadowBlur=18;ctx.fillStyle="#55f7ff";rr(paddle.x,paddle.y,paddle.w,paddle.h,8);ctx.fill();ctx.restore();
+ ctx.save();ctx.shadowColor="#ffea00";ctx.shadowBlur=20;ctx.fillStyle="#fff176";ctx.beginPath();ctx.arc(ball.x,ball.y,ball.r,0,Math.PI*2);ctx.fill();ctx.restore();
+ if(game.state===STATE.READY)overlay("TOQUE PARA LANÇAR","Arraste para mover a barra","#00f0ff");
+ if(game.state===STATE.PAUSED)overlay("PAUSADO","Toque em Pausar para continuar","#00f0ff");
+ if(game.state===STATE.CLEARED)overlay("NÍVEL CONCLUÍDO","Toque para próximo nível","#39ff14");
+ if(game.state===STATE.OVER)overlay("FIM DE JOGO","Toque para recomeçar","#ff2d95");
+ if(game.state===STATE.VICTORY)overlay("VITÓRIA!","Você terminou todos os níveis!","#ffea00")
+}
+function startScreen(){
+ ctx.textAlign="center";ctx.font="bold 56px Courier New";ctx.fillStyle="#ff2d95";ctx.shadowColor="#ff2d95";ctx.shadowBlur=25;ctx.fillText("BRICK BREAKER",W/2,150);
+ ctx.font="bold 20px Courier New";ctx.fillStyle="#00f0ff";ctx.shadowColor="#00f0ff";ctx.fillText("- NEON ARCADE -",W/2,190);ctx.shadowBlur=0;ctx.font="18px Courier New";ctx.fillStyle="#fff";ctx.fillText("ESCOLHA A DIFICULDADE",W/2,245);
+ const cols=["#39ff14","#00f0ff","#ff2d95"];buttons.forEach((b,i)=>{ctx.save();ctx.shadowColor=cols[i];ctx.shadowBlur=16;ctx.strokeStyle=cols[i];ctx.lineWidth=3;ctx.fillStyle="rgba(0,20,30,.7)";rr(b[1],b[2],b[3],b[4],10);ctx.fill();ctx.stroke();ctx.restore();ctx.fillStyle=cols[i];ctx.font="bold 24px Courier New";ctx.fillText(b[0].toUpperCase(),b[1]+b[3]/2,b[2]+38)})
+}
+function overlay(t,s,c){ctx.fillStyle="rgba(0,0,0,.72)";ctx.fillRect(0,0,W,H);ctx.textAlign="center";ctx.font="bold 50px Courier New";ctx.fillStyle=c;ctx.shadowColor=c;ctx.shadowBlur=25;ctx.fillText(t,W/2,H/2-10);ctx.shadowBlur=8;ctx.fillStyle="#fff";ctx.font="20px Courier New";ctx.fillText(s,W/2,H/2+38)}
+function action(){if(game.state===STATE.READY)launch();else if(game.state===STATE.CLEARED)next();else if(game.state===STATE.OVER||game.state===STATE.VICTORY){game.state=STATE.START;game.settings=null;hud()}}
+function toggle(){if(game.state===STATE.PLAYING)game.state=STATE.PAUSED;else if(game.state===STATE.PAUSED)game.state=STATE.PLAYING}
+canvas.addEventListener("mousemove",e=>{if(game.state===STATE.PLAYING||game.state===STATE.READY)move(pos(e.clientX,e.clientY).x)});
+canvas.addEventListener("mousedown",e=>{let p=pos(e.clientX,e.clientY);if(game.state===STATE.START){for(const b of buttons)if(p.x>=b[1]&&p.x<=b[1]+b[3]&&p.y>=b[2]&&p.y<=b[2]+b[4]){start(b[0]);return}}else action()});
+canvas.addEventListener("touchstart",e=>{e.preventDefault();let p=pos(e.changedTouches[0].clientX,e.changedTouches[0].clientY);if(game.state===STATE.START){for(const b of buttons)if(p.x>=b[1]&&p.x<=b[1]+b[3]&&p.y>=b[2]&&p.y<=b[2]+b[4]){start(b[0]);return}}else{if(game.state===STATE.PLAYING||game.state===STATE.READY)move(p.x);action()}},{passive:false});
+canvas.addEventListener("touchmove",e=>{e.preventDefault();if(game.state===STATE.PLAYING||game.state===STATE.READY)move(pos(e.changedTouches[0].clientX,e.changedTouches[0].clientY).x)},{passive:false});
+document.addEventListener("keydown",e=>{if(e.key===" "){e.preventDefault();action()}if(e.key.toLowerCase()==="p")toggle()});
+pauseBtn.onclick=toggle;
+restartBtn.onclick=()=>{if(game.settings){save();start(game.difficulty)}else game.state=STATE.START};
+window.addEventListener("resize",resize);window.addEventListener("orientationchange",()=>setTimeout(resize,200));
+function loop(){update();render();requestAnimationFrame(loop)}
+resize();hud();loop();
+})();
+</script>
+</body>
+</html>

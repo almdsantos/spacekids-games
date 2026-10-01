@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="description" content="SpaceKids Snake">
+<title>SpaceKids Snake</title>
+<style>
+:root{--bg:#0a0e17;--panel:#111725;--grid:#1a2233;--snake:#38f9c4;--head:#6effda;--food:#ff5c7a;--text:#e8eef7;--muted:#6b7a92;--focus:#6ea8ff}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;background:var(--bg);color:var(--text);font-family:"Segoe UI",-apple-system,BlinkMacSystemFont,sans-serif;-webkit-tap-highlight-color:transparent}
+body{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100dvh;padding:16px;gap:14px;background:radial-gradient(1200px 600px at 50% -10%,rgba(56,249,196,.08),transparent 60%),var(--bg)}
+:focus-visible{outline:2px solid var(--focus);outline-offset:3px}
+.title{font-size:clamp(22px,6vw,34px);font-weight:800;letter-spacing:3px;text-transform:uppercase;background:linear-gradient(90deg,var(--snake),#6ea8ff);-webkit-background-clip:text;background-clip:text;color:transparent}
+.scoreboard{display:flex;gap:14px}
+.stat{background:var(--panel);border:1px solid var(--grid);border-radius:12px;padding:8px 18px;text-align:center;min-width:92px}
+.label{font-size:10px;letter-spacing:2px;text-transform:uppercase;color:var(--muted)}
+.value{font-size:24px;font-weight:700;color:var(--snake);font-variant-numeric:tabular-nums}
+.board-wrap{position:relative;width:min(92vw,420px);aspect-ratio:1}
+canvas{width:100%;height:100%;background:var(--panel);border:1px solid var(--grid);border-radius:16px;box-shadow:0 0 40px rgba(56,249,196,.08),inset 0 0 60px rgba(0,0,0,.4);display:block;touch-action:none}
+.overlay{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;background:rgba(10,14,23,.84);backdrop-filter:blur(4px);border-radius:16px;text-align:center;padding:20px}
+.overlay.hidden{opacity:0;pointer-events:none}
+.overlay h2{font-size:clamp(20px,5vw,28px);font-weight:800}
+.overlay p{color:var(--muted);font-size:14px;max-width:260px;line-height:1.5}
+.btn{border:none;cursor:pointer;background:linear-gradient(90deg,var(--snake),#6ea8ff);color:#04121a;font-weight:800;letter-spacing:1px;font-size:14px;padding:12px 28px;border-radius:999px;text-transform:uppercase;box-shadow:0 6px 20px rgba(56,249,196,.3)}
+.hint{color:var(--muted);font-size:12px;text-align:center}
+.dpad{display:grid;grid-template-columns:repeat(3,84px);grid-template-rows:repeat(3,84px);gap:12px}
+.dpad button{background:var(--panel);border:1px solid var(--grid);border-radius:16px;color:var(--snake);font-size:32px;touch-action:manipulation;cursor:pointer;display:flex;align-items:center;justify-content:center;user-select:none}
+.dpad .up{grid-column:2}.dpad .left{grid-column:1;grid-row:2}.dpad .pause{grid-column:2;grid-row:2;font-size:24px}.dpad .right{grid-column:3;grid-row:2}.dpad .down{grid-column:2;grid-row:3}
+@media (hover:hover) and (pointer:fine){.dpad{display:none}}
+</style>
+</head>
+<body>
+<div class="title">SNAKE</div>
+
+<div class="scoreboard">
+  <div class="stat"><div class="label">Pontos</div><div class="value" id="score">0</div></div>
+  <div class="stat"><div class="label">Recorde</div><div class="value" id="best">0</div></div>
+</div>
+
+<div class="board-wrap">
+  <canvas id="game" width="420" height="420"></canvas>
+  <div class="overlay" id="overlay">
+    <h2 id="ov-title">SpaceKids Snake</h2>
+    <p id="ov-text">Pegue as frutas, cresça e não bata nas paredes nem em você mesmo!</p>
+    <button class="btn" id="startBtn">Jogar</button>
+  </div>
+</div>
+
+<div class="hint">Deslize na tela ou use as setas</div>
+
+<div class="dpad">
+  <button class="up" data-dir="up">▲</button>
+  <button class="left" data-dir="left">◀</button>
+  <button class="pause" id="pauseBtn">❚❚</button>
+  <button class="right" data-dir="right">▶</button>
+  <button class="down" data-dir="down">▼</button>
+</div>
+
+<script>
+(function(){
+'use strict';
+const C={GRID:21,LEN:3,SPEED:200,MIN:100,STEP:4,EVERY:3,SWIPE:24,KEY:'spaceKidsSnake.highScore'};
+const D={UP:{x:0,y:-1},DOWN:{x:0,y:1},LEFT:{x:-1,y:0},RIGHT:{x:1,y:0}};
+const canvas=document.getElementById('game'),ctx=canvas.getContext('2d');
+const scoreEl=document.getElementById('score'),bestEl=document.getElementById('best');
+const overlay=document.getElementById('overlay'),title=document.getElementById('ov-title'),text=document.getElementById('ov-text'),start=document.getElementById('startBtn');
+const pause=document.getElementById('pauseBtn');
+const CELL=canvas.width/C.GRID;
+let state, timer=null, touchStart=null;
+
+function loadBest(){try{return parseInt(localStorage.getItem(C.KEY),10)||0}catch{return 0}}
+function saveBest(v){try{localStorage.setItem(C.KEY,String(v))}catch{}}
+function initial(){
+ let x=Math.floor(C.GRID/2),y=x,s=[];
+ for(let i=0;i<C.LEN;i++)s.push({x:x-i,y});
+ return {phase:'menu',snake:s,dir:D.RIGHT,pending:D.RIGHT,food:null,score:0,best:loadBest(),speed:C.SPEED};
+}
+function food(){
+ let f;
+ do{f={x:Math.floor(Math.random()*C.GRID),y:Math.floor(Math.random()*C.GRID)}}while(state.snake.some(s=>s.x===f.x&&s.y===f.y));
+ state.food=f;
+}
+function startGame(){
+ state=initial();food();state.phase='running';scoreEl.textContent=0;bestEl.textContent=state.best;
+ overlay.classList.add('hidden');loop();render();
+}
+function loop(){clearInterval(timer);timer=setInterval(tick,state.speed)}
+function end(){
+ state.phase='over';clearInterval(timer);
+ if(state.score>state.best){state.best=state.score;saveBest(state.best);bestEl.textContent=state.best}
+ title.textContent='Fim de jogo';text.textContent='Você fez '+state.score+' ponto'+(state.score===1?'':'s')+'!';start.textContent='Jogar novamente';overlay.classList.remove('hidden');
+}
+function setDir(d){
+ if(d.x===-state.dir.x&&d.y===-state.dir.y)return;
+ state.pending=d;
+}
+function tick(){
+ if(state.phase!=='running')return;
+ state.dir=state.pending;
+ const h={x:state.snake[0].x+state.dir.x,y:state.snake[0].y+state.dir.y};
+ if(h.x<0||h.y<0||h.x>=C.GRID||h.y>=C.GRID||state.snake.some(s=>s.x===h.x&&s.y===h.y)){end();return}
+ state.snake.unshift(h);
+ if(h.x===state.food.x&&h.y===state.food.y){
+   state.score++;scoreEl.textContent=state.score;food();
+   if(state.score%C.EVERY===0&&state.speed>C.MIN){state.speed=Math.max(C.MIN,state.speed-C.STEP);loop()}
+ }else state.snake.pop();
+ render();
+}
+function togglePause(){
+ if(state.phase==='running'){state.phase='paused';title.textContent='Pausado';text.textContent='Toque em continuar para voltar ao jogo.';start.textContent='Continuar';overlay.classList.remove('hidden')}
+ else if(state.phase==='paused'){state.phase='running';overlay.classList.add('hidden')}
+}
+function menu(){
+ clearInterval(timer);state=initial();scoreEl.textContent=0;bestEl.textContent=state.best;title.textContent='SpaceKids Snake';text.textContent='Pegue as frutas, cresça e não bata nas paredes nem em você mesmo!';start.textContent='Jogar';overlay.classList.remove('hidden');render()
+}
+function rect(x,y,w,h,r){ctx.beginPath();ctx.moveTo(x+r,y);ctx.arcTo(x+w,y,x+w,y+h,r);ctx.arcTo(x+w,y+h,x,y+h,r);ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);ctx.closePath();ctx.fill()}
+function render(){
+ ctx.clearRect(0,0,420,420);
+ ctx.strokeStyle='#1a2233';ctx.globalAlpha=.4;
+ for(let i=1;i<C.GRID;i++){ctx.beginPath();ctx.moveTo(i*CELL,0);ctx.lineTo(i*CELL,420);ctx.stroke();ctx.beginPath();ctx.moveTo(0,i*CELL);ctx.lineTo(420,i*CELL);ctx.stroke()}ctx.globalAlpha=1;
+ if(state.food){ctx.fillStyle='#ff5c7a';ctx.shadowColor='#ff5c7a';ctx.shadowBlur=16;rect(state.food.x*CELL+CELL*.18,state.food.y*CELL+CELL*.18,CELL*.64,CELL*.64,5);ctx.shadowBlur=0}
+ for(let i=state.snake.length-1;i>=0;i--){let s=state.snake[i];ctx.fillStyle=i===0?'#6effda':'#38f9c4';ctx.shadowColor='#38f9c4';ctx.shadowBlur=i===0?14:0;ctx.globalAlpha=i===0?1:.85-(i/state.snake.length)*.35;rect(s.x*CELL+1,s.y*CELL+1,CELL-2,CELL-2,5)}ctx.globalAlpha=1;ctx.shadowBlur=0;
+}
+const keys={arrowup:D.UP,w:D.UP,arrowdown:D.DOWN,s:D.DOWN,arrowleft:D.LEFT,a:D.LEFT,arrowright:D.RIGHT,d:D.RIGHT};
+window.addEventListener('keydown',e=>{let k=e.key.toLowerCase();if(keys[k]){e.preventDefault();if(state.phase==='running')setDir(keys[k])}else if(e.code==='Space'){e.preventDefault();if(state.phase==='running'||state.phase==='paused')togglePause()}else if(k==='escape')menu()});
+document.querySelectorAll('[data-dir]').forEach(b=>b.onclick=()=>{if(state.phase==='running')setDir({up:D.UP,down:D.DOWN,left:D.LEFT,right:D.RIGHT}[b.dataset.dir])});
+pause.onclick=()=>{if(state.phase==='running'||state.phase==='paused')togglePause()};
+start.onclick=()=>state.phase==='paused'?togglePause():startGame();
+canvas.addEventListener('touchstart',e=>{touchStart={x:e.touches[0].clientX,y:e.touches[0].clientY}},{passive:true});
+canvas.addEventListener('touchend',e=>{
+ if(!touchStart||state.phase!=='running'){touchStart=null;return}
+ let dx=e.changedTouches[0].clientX-touchStart.x,dy=e.changedTouches[0].clientY-touchStart.y;
+ if(Math.max(Math.abs(dx),Math.abs(dy))>=C.SWIPE){setDir(Math.abs(dx)>Math.abs(dy)?(dx>0?D.RIGHT:D.LEFT):(dy>0?D.DOWN:D.UP))}
+ touchStart=null;
+},{passive:true});
+state=initial();bestEl.textContent=state.best;render();
+})();
+</script>
+</body>
+</html>
